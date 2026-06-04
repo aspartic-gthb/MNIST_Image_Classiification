@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MNIST Digit Recogniser — Live Demo</title>
+  <meta name="description" content="Draw any digit (0–9) and a deep CNN classifies it instantly in your browser — powered by TensorFlow.js." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <style>
+    /* ── Reset ───────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Tokens — one accent colour only ────────────────────────────────── */
+    :root {
+      --bg:          #0f1117;
+      --surface:     #191c24;
+      --surface2:    #1e2130;
+      --border:      #2a2d3a;
+      --accent:      #2563eb;
+      --accent-dim:  rgba(37, 99, 235, 0.15);
+      --text:        #e4e6ed;
+      --muted:       #5c6070;
+      --canvas-px:   300px;
+      --radius:      10px;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 1.25rem 4rem;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────── */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      max-width: 560px;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 3px 10px;
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      margin-bottom: 0.6rem;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    /* ── Card ────────────────────────────────────────────────────────────── */
+    .card {
+      width: 100%;
+      max-width: 720px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: var(--canvas-px) 1fr;
+      gap: 2rem;
+      align-items: start;
+    }
+
+    @media (max-width: 600px) {
+      .grid { grid-template-columns: 1fr; }
+      :root { --canvas-px: 100%; }
+    }
+
+    /* ── Canvas ──────────────────────────────────────────────────────────── */
+    .canvas-col { display: flex; flex-direction: column; gap: 0.75rem; }
+
+    .col-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .canvas-wrap {
+      width: var(--canvas-px);
+      height: var(--canvas-px);
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      transition: border-color 0.2s;
+    }
+    .canvas-wrap:focus-within,
+    .canvas-wrap:hover { border-color: var(--accent); }
+
+    #drawCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .hint {
+      font-size: 0.73rem;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────────────────── */
+    .btn-row { display: flex; gap: 0.6rem; }
+
+    button {
+      flex: 1;
+      padding: 0.6rem 1rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    #clearBtn {
+      background: transparent;
+      color: var(--muted);
+    }
+    #clearBtn:hover { background: var(--surface2); color: var(--text); border-color: var(--muted); }
+
+    #predictBtn {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    #predictBtn:hover { background: #1d4ed8; border-color: #1d4ed8; }
+    #predictBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ── Result column ───────────────────────────────────────────────────── */
+    .result-col { display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* Big digit display */
+    .digit-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem 1rem;
+      text-align: center;
+    }
+
+    .box-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    #predDisplay {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 4.5rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+      min-height: 5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #predDisplay.empty { font-size: 2.5rem; color: var(--muted); }
+
+    /* Confidence bar */
+    .conf-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.8rem;
+      margin-bottom: 0.35rem;
+    }
+    .conf-label { font-size: 0.78rem; color: var(--muted); }
+    #confValue {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .bar-bg {
+      width: 100%;
+      height: 4px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    #confBar {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    /* Probability breakdown */
+    .probs-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.6rem;
+    }
+
+    #probBars { display: flex; flex-direction: column; gap: 0.4rem; }
+
+    .prob-row {
+      display: grid;
+      grid-template-columns: 16px 1fr 38px;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .prob-digit {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .prob-track {
+      height: 4px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .prob-fill {
+      height: 100%;
+      background: var(--muted);
+      border-radius: 999px;
+      transition: width 0.35s ease;
+    }
+    .prob-fill.is-top { background: var(--accent); }
+    .prob-pct {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-align: right;
+    }
+    .prob-pct.is-top { color: var(--accent); }
+
+    /* ── Stats row ───────────────────────────────────────────────────────── */
+    .stats-row {
+      display: flex;
+      gap: 1px;
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1rem;
+    }
+
+    .stat {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.9rem 0.5rem;
+      text-align: center;
+    }
+    .stat:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+    .stat:last-child  { border-radius: 0 var(--radius) var(--radius) 0; }
+
+    .stat-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .stat-key {
+      font-size: 0.67rem;
+      color: var(--muted);
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Status bar ──────────────────────────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-top: 1rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+    .status-dot.loading { background: #ca8a04; animation: blink 1.2s step-end infinite; }
+    .status-dot.ready   { background: var(--accent); }
+    .status-dot.error   { background: #dc2626; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.25; }
+    }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    footer {
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Loading overlay ─────────────────────────────────────────────────── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 17, 23, 0.88);
+      backdrop-filter: blur(4px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.85rem;
+      z-index: 50;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .overlay-text { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── Fade-in on result ───────────────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeUp 0.25s ease forwards; }
+  </style>
+</head>
+<body>
+
+  <!-- Loading overlay -->
+  <div id="overlay">
+    <div class="spinner"></div>
+    <div class="overlay-text">Loading model weights&hellip;</div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="tag">Live Demo</div>
+    <h1>MNIST Digit Recogniser</h1>
+    <p class="subtitle">Draw any digit (0–9) and the CNN classifies it instantly — runs entirely in your browser.</p>
+  </header>
+
+  <!-- Main card -->
+  <div class="card">
+    <div class="grid">
+
+      <!-- Canvas -->
+      <div class="canvas-col">
+        <span class="col-label">Draw here</span>
+        <div class="canvas-wrap">
+          <canvas id="drawCanvas" width="300" height="300"></canvas>
+        </div>
+        <p class="hint">Mouse or touch · draw large and centred</p>
+        <div class="btn-row">
+          <button id="clearBtn">Clear</button>
+          <button id="predictBtn">Predict</button>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="result-col">
+
+        <!-- Big digit -->
+        <div class="digit-box">
+          <div class="box-label">Prediction</div>
+          <div id="predDisplay" class="empty">—</div>
+          <div class="conf-row">
+            <span class="conf-label">Confidence</span>
+            <span id="confValue">—</span>
+          </div>
+          <div class="bar-bg">
+            <div id="confBar"></div>
+          </div>
+        </div>
+
+        <!-- Probability bars -->
+        <div>
+          <div class="probs-title">Class probabilities</div>
+          <div id="probBars"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-val">~99%</div>
+      <div class="stat-key">Test Accuracy</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val">32–256</div>
+      <div class="stat-key">Filters</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val">4</div>
+      <div class="stat-key">Conv Blocks</div>
+    </div>
+    <div class="stat" id="statInference">
+      <div class="stat-val" id="inferVal">—</div>
+      <div class="stat-key">Inference</div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-dot loading" id="statusDot"></div>
+    <span id="statusText">Loading model&hellip;</span>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    TensorFlow.js &middot; Modified MNIST &middot;
+    <a href="https://github.com/aspartic-gthb/MNIST_Image_Classiification" target="_blank" rel="noopener">View source on GitHub</a>
+  </footer>
+
+  <script>
+  const CANVAS_PX  = 300;
+  const MODEL_PX   = 28;
+  const MEAN       = 0.1307;
+  const STD        = 0.3081;
+
+  const canvas      = document.getElementById('drawCanvas');
+  const ctx         = canvas.getContext('2d');
+  const clearBtn    = document.getElementById('clearBtn');
+  const predictBtn  = document.getElementById('predictBtn');
+  const predDisplay = document.getElementById('predDisplay');
+  const confValue   = document.getElementById('confValue');
+  const confBar     = document.getElementById('confBar');
+  const probBars    = document.getElementById('probBars');
+  const statusDot   = document.getElementById('statusDot');
+  const statusText  = document.getElementById('statusText');
+  const overlay     = document.getElementById('overlay');
+  const inferVal    = document.getElementById('inferVal');
+
+  let drawing = false;
+  let lastPos = null;
+  let model   = null;
+
+  // Init canvas
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX);
+
+  // ── Pointer helpers ────────────────────────────────────────────────────────
+  function getXY(e) {
+    const r = canvas.getBoundingClientRect();
+    const sx = canvas.width  / r.width;
+    const sy = canvas.height / r.height;
+    const src = e.touches ? e.touches[0] : e;
+    return { x: (src.clientX - r.left) * sx, y: (src.clientY - r.top) * sy };
+  }
+
+  function onDown(e) {
+    e.preventDefault();
+    drawing = true;
+    lastPos = getXY(e);
+    ctx.beginPath();
+    ctx.arc(lastPos.x, lastPos.y, 10, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+
+  function onMove(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const pos = getXY(e);
+    ctx.beginPath();
+    ctx.moveTo(lastPos.x, lastPos.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 22;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.stroke();
+    lastPos = pos;
+  }
+
+  function onUp() { drawing = false; lastPos = null; }
+
+  canvas.addEventListener('mousedown',  onDown);
+  canvas.addEventListener('mousemove',  onMove);
+  canvas.addEventListener('mouseup',    onUp);
+  canvas.addEventListener('mouseleave', onUp);
+  canvas.addEventListener('touchstart', onDown, { passive: false });
+  canvas.addEventListener('touchmove',  onMove, { passive: false });
+  canvas.addEventListener('touchend',   onUp);
+
+  // ── Clear ──────────────────────────────────────────────────────────────────
+  clearBtn.addEventListener('click', () => {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX);
+    predDisplay.textContent = '—';
+    predDisplay.className   = 'empty';
+    confValue.textContent   = '—';
+    confBar.style.width     = '0%';
+    probBars.innerHTML      = '';
+    inferVal.textContent    = '—';
+  });
+
+  // ── Predict ────────────────────────────────────────────────────────────────
+  predictBtn.addEventListener('click', async () => {
+    if (!model) return;
+    predictBtn.disabled = true;
+
+    const t0 = performance.now();
+
+    // Downsample to 28×28
+    const off = document.createElement('canvas');
+    off.width = off.height = MODEL_PX;
+    off.getContext('2d').drawImage(canvas, 0, 0, MODEL_PX, MODEL_PX);
+    const { data } = off.getContext('2d').getImageData(0, 0, MODEL_PX, MODEL_PX);
+
+    const px = new Float32Array(MODEL_PX * MODEL_PX);
+    for (let i = 0; i < MODEL_PX * MODEL_PX; i++) {
+      px[i] = (data[i * 4] / 255 - MEAN) / STD;
+    }
+
+    const inp  = tf.tensor4d(px, [1, MODEL_PX, MODEL_PX, 1]);
+    const prob = await model.predict(inp).data();
+    inp.dispose();
+
+    const elapsed  = Math.round(performance.now() - t0);
+    const topClass = [...prob].indexOf(Math.max(...prob));
+    const topConf  = prob[topClass];
+
+    // Update display
+    predDisplay.className   = 'fade-in';
+    predDisplay.textContent = topClass;
+    confValue.textContent   = (topConf * 100).toFixed(1) + '%';
+    confBar.style.width     = (topConf * 100) + '%';
+    inferVal.textContent    = elapsed + ' ms';
+
+    // Probability bars — sorted descending
+    const sorted = [...prob]
+      .map((p, i) => ({ d: i, p }))
+      .sort((a, b) => b.p - a.p);
+
+    probBars.innerHTML = sorted.map(({ d, p }) => {
+      const top = d === topClass;
+      return `
+        <div class="prob-row">
+          <span class="prob-digit">${d}</span>
+          <div class="prob-track">
+            <div class="prob-fill ${top ? 'is-top' : ''}" style="width:${(p*100).toFixed(2)}%"></div>
+          </div>
+          <span class="prob-pct ${top ? 'is-top' : ''}">${(p*100).toFixed(1)}%</span>
+        </div>`;
+    }).join('');
+
+    predictBtn.disabled = false;
+  });
+
+  // ── Load model ─────────────────────────────────────────────────────────────
+  async function loadModel() {
+    try {
+      model = await tf.loadLayersModel('./model/model.json');
+      const dummy = tf.zeros([1, 28, 28, 1]);
+      model.predict(dummy).dispose();
+      dummy.dispose();
+      overlay.style.display  = 'none';
+      statusDot.className    = 'status-dot ready';
+      statusText.textContent = 'Model ready — ' + model.countParams().toLocaleString() + ' params';
+    } catch (err) {
+      console.error(err);
+      overlay.style.display  = 'none';
+      statusDot.className    = 'status-dot error';
+      statusText.textContent = 'Model failed to load — check the model/ folder';
+    }
+  }
+
+  loadModel();
+  </script>
+</body>
+</html>
