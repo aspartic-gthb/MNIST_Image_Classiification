@@ -198,7 +198,6 @@ The notebook produces the following plots:
 | 10 | Final Summary | Consolidated results comparison |
 
 ---
+***Author***
 
-<p align="center">
-  Made with ❤️ using TensorFlow & Keras
-</p>
+Anirudh
